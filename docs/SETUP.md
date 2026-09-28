@@ -86,15 +86,20 @@ shows a green tick.
 | `404 webhook not registered` | You did not press **Execute workflow** first, or you used the production URL while testing. |
 | Agent node red: *output parser failed* | Model returned prose. Lower temperature to `0.2` in the Gemini node, execute again. |
 | Agent node red: *quota / 429* | Free-tier rate limit. Wait a minute. |
-| Agent node red: *503 / Service unavailable / high demand* | Google's servers, not your setup. This node is a sub-node (attached to the Agent), so its Settings tab has no Retry On Fail option. Just press **Execute workflow** again a few times, 20-30s apart. If it keeps failing, open the **Model** dropdown and pick a different `flash` entry — load is per-model. |
+| Agent node red: *503 / Service unavailable / high demand* | Google's servers, not your setup. Fix: open **Exit Check AI Agent** (the parent node, not the Gemini sub-node) -> **Settings** -> turn on **Retry On Fail**, Max Tries `5`, Wait `5000` ms. Sub-nodes do not expose this setting; the parent does, and retrying it re-runs the model call. Publish afterwards. |
 | Response is `{}` or empty | Open **Respond to Website** and confirm the body is exactly `{{ JSON.stringify($json.output) }}` with the field in **Expression** mode, not Fixed. |
 | Response has a `message` key like `Workflow was started` | The Webhook node's **Respond** setting is wrong. Set it to *Using 'Respond to Webhook' Node*. |
 
 ---
 
-## PHASE 7 — Activate the workflow and take the production URL
+## PHASE 7 — Publish the workflow and take the production URL
 
-1. Toggle **Inactive → Active** at the top right. Confirm.
+1. Click **Publish** at the top right. (Older n8n versions show an **Inactive → Active**
+   toggle in the same place — same thing.)
+
+   **Publish after every workflow change.** The production URL always runs the last
+   *published* snapshot, not your current draft. That is why **Execute workflow** can go
+   green while the website still fails.
 2. Double-click **Website Webhook** again. Now copy the **Production URL**. It looks like:
 
 ```
@@ -107,11 +112,15 @@ https://yourname.app.n8n.cloud/webhook/before-you-leave
 |---|---|---|
 | Editor URL | `/workflow/abc123` | Showing the workflow in your viva. **Not** a submission URL. |
 | Test URL | `/webhook-test/` | Only works while you press Execute. **Not** a submission URL. |
-| **Production URL** | `/webhook/` | **Submit this.** Works 24/7 while the workflow is Active. |
+| **Production URL** | `/webhook/` | **Submit this.** Works 24/7 while the workflow is published. |
 
-3. Verify the production URL with the same `curl` command, but **without** pressing Execute
-   in n8n. It must answer. If it returns `404 not registered for POST`, the workflow is not
-   Active.
+3. Verify the production URL with the test script, but **without** pressing Execute in n8n:
+
+```powershell
+.\docs\test-webhook.ps1 -Url "PRODUCTION_URL"
+```
+
+   It must answer. If it returns `404 not registered for POST`, the workflow is not published.
 
 ---
 
@@ -154,16 +163,21 @@ website fails.
 
 ## PHASE 9 — Deploy the website
 
-Netlify Drop. No account gymnastics, no git, no build step.
+GitHub + Vercel. Every later `git push` redeploys automatically.
 
-1. Open **https://app.netlify.com/drop**.
-2. Drag the **`before-you-leave` folder itself** onto the drop zone. (Do not zip it. Do not
-   drag `index.html` alone.)
-3. Wait ~20 seconds. You get a URL like `https://random-words-12345.netlify.app`.
-4. Sign up with GitHub or email when prompted, so the site does not expire.
-5. Optional but worth 30 seconds: **Site configuration → Change site name** → set
-   `before-you-leave-yourname`. The URL becomes
-   `https://before-you-leave-yourname.netlify.app`.
+1. Create an empty public repo at **https://github.com/new** named `before-you-leave`.
+   Do **not** tick "Add a README" — the project already has one.
+2. Push:
+
+```powershell
+git remote add origin https://github.com/YOUR_USERNAME/before-you-leave.git
+git push -u origin main
+```
+
+3. Go to **https://vercel.com/new**, sign in with GitHub, **Import** the repo.
+4. Framework Preset: **Other**. Leave Build Command and Output Directory empty — this is
+   plain static, there is nothing to build.
+5. **Deploy**. You get a URL like `https://before-you-leave-xxxx.vercel.app`.
 
 **This is SUBMISSION URL 1.**
 
