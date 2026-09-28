@@ -1,0 +1,131 @@
+{
+  "name": "Before You Leave - Exit Assistant Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "before-you-leave",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Website Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-320, 0],
+      "webhookId": "before-you-leave"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input processing: normalise whatever the website sent into clean, safe fields.\n// Never throws - thin input is handled by the agent as a clarifying question.\nconst b = ($input.first().json.body) || {};\nconst clean = (v) => (typeof v === 'string' ? v.trim() : '');\n\nlet items = [];\nif (Array.isArray(b.items)) {\n  items = b.items.map(clean).filter(Boolean);\n} else if (clean(b.items)) {\n  items = clean(b.items).split(',').map((s) => s.trim()).filter(Boolean);\n}\n\nreturn [{\n  json: {\n    destination: clean(b.destination) || 'not provided',\n    purpose: clean(b.purpose) || 'not provided',\n    items: items,\n    items_text: items.length ? items.join(', ') : 'none listed',\n    special_conditions: clean(b.special_conditions) || 'none mentioned',\n    use_weather: b.use_weather === true,\n    location: clean(b.location) || '',\n    received_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-100, 0]
+    },
+    {
+      "parameters": {
+        "agent": "toolsAgent",
+        "promptType": "define",
+        "text": "=SITUATION INPUT\n\nDestination: {{ $json.destination }}\nPurpose: {{ $json.purpose }}\nItems the user says they are already carrying: {{ $json.items_text }}\nSpecial conditions about today: {{ $json.special_conditions }}\nWeather context requested by user: {{ $json.use_weather ? 'YES' : 'NO' }}\nCity for weather lookup (may be empty): {{ $json.location }}\n\nAnalyse THIS situation and return the structured exit check.",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are the \"Before You Leave\" AI Agent - a situation-aware exit assistant.\n\nGOAL\nAnalyse ONE specific real-world situation and identify what this person is realistically likely to overlook before leaving. You are not a packing-list generator.\n\nYOU RECEIVE\n- destination\n- purpose\n- items the user says they are already carrying\n- special conditions about today\n- optionally, a weather tool you may call\n\nREASONING RULES\n1. Reason only from THIS situation. Never emit a generic checklist.\n2. Label every item with a \"source\":\n   - \"known\": the user explicitly stated it, or the stated purpose unavoidably requires it (a hall ticket for an exam, a boarding pass for a flight).\n   - \"inferred\": you concluded it from something the user said (laptop mentioned -> charger).\n   - \"external\": it came from a tool result you actually received in THIS run.\n3. Use \"external\" only when a tool really returned data in this run. Never claim you checked weather, calendar, location or past behaviour if you did not. You have NO memory of previous conversations - never imply you do.\n4. Every item carries a short concrete reason, max about 15 words, tied to the input.\n5. Do not recommend items with no logical link to the situation. No passport for a college exam. No toothbrush for a two-hour office visit. No sunglasses unless something in the input justifies them.\n6. Items the user already listed go in critical_items or final_exit_check as confirmation. Do not present them as things you discovered.\n7. Stay tight: at most 5 critical_items, 5 overlooked_items, 4 optional_items.\n8. No medical, legal or safety-critical advice. Never name medication, dosages or treatments. \"Your prescription\" is acceptable; a drug name is not.\n9. If the input is too thin to reason about (destination and purpose both missing or meaningless), put ONE useful question in clarifying_question and keep the item arrays short or empty.\n10. final_exit_check is a compact flat list of plain item names only - no reasons, no numbering. It merges the critical items with the overlooked ones the user should act on.\n11. Tone: calm, practical, second person, no hype, no emoji, no sales language.\n\nWEATHER TOOL\nCall the weather tool only if weather context was requested AND a city was given. If it fails or returns nothing useful, continue silently without weather and do not mention it.\n\nOUTPUT\nReturn only the structured JSON object matching the required schema. No markdown, no commentary outside the JSON."
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Exit Check AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [160, 0]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.7-flash",
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [60, 220]
+    },
+    {
+      "parameters": {
+        "schemaType": "fromJson",
+        "jsonSchemaExample": "{\n  \"situation\": {\n    \"destination\": \"college\",\n    \"purpose\": \"exam\",\n    \"conditions\": \"rain expected\"\n  },\n  \"critical_items\": [\n    { \"item\": \"Hall ticket\", \"reason\": \"Required to enter the exam hall\", \"source\": \"known\" }\n  ],\n  \"overlooked_items\": [\n    { \"item\": \"Umbrella\", \"reason\": \"You mentioned rain today\", \"source\": \"inferred\" }\n  ],\n  \"optional_items\": [\n    { \"item\": \"Water bottle\", \"reason\": \"Long time away from home\", \"source\": \"inferred\" }\n  ],\n  \"final_exit_check\": [\"Phone\", \"Hall ticket\", \"Umbrella\"],\n  \"clarifying_question\": \"\"\n}"
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [300, 220]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Get the current weather for a city. Use this ONLY when weather context was requested and a city name is available. Returns one short line, for example: Chennai: partly cloudy +31C. Treat anything you learn here as source \"external\".",
+        "url": "https://wttr.in/{city}?format=4",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "city",
+              "description": "The city name to look up, for example Chennai or Bengaluru",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000006",
+      "name": "Weather Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [500, 220]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.output) }}",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000007",
+      "name": "Respond to Website",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [520, 0]
+    }
+  ],
+  "connections": {
+    "Website Webhook": {
+      "main": [[{ "node": "Validate Input", "type": "main", "index": 0 }]]
+    },
+    "Validate Input": {
+      "main": [[{ "node": "Exit Check AI Agent", "type": "main", "index": 0 }]]
+    },
+    "Exit Check AI Agent": {
+      "main": [[{ "node": "Respond to Website", "type": "main", "index": 0 }]]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [[{ "node": "Exit Check AI Agent", "type": "ai_languageModel", "index": 0 }]]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [[{ "node": "Exit Check AI Agent", "type": "ai_outputParser", "index": 0 }]]
+    },
+    "Weather Tool": {
+      "ai_tool": [[{ "node": "Exit Check AI Agent", "type": "ai_tool", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "before-you-leave-college-project"
+  }
+}
